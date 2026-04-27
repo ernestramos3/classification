@@ -70,19 +70,158 @@ def enhancedFeatureExtractorDigit(datum):
 
     You should return a util.Counter() of features
     for this datum (datum is of type samples.Datum).
-
-    ## DESCRIBE YOUR ENHANCED FEATURES HERE...
-
-    ##
     """
     features =  basicFeatureExtractorDigit(datum)
 
     "*** YOUR CODE HERE ***"
-    util.raiseNotDefined()
+
+    features = util.Counter()
+
+    width = DIGIT_DATUM_WIDTH
+    height = DIGIT_DATUM_HEIGHT
+
+    for x in range(width):
+        for y in range(height):
+            features[(x, y)] = 1 if datum.getPixel(x, y) > 0 else 0
+    visited = set()
+
+    def neighbors(x, y):
+        for dx, dy in [(1,0),(-1,0),(0,1),(0,-1)]:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < width and 0 <= ny < height:
+                yield nx, ny
+
+    def bfs(x, y):
+        stack = [(x, y)]
+        visited.add((x, y))
+        while stack:
+            cx, cy = stack.pop()
+            for nx, ny in neighbors(cx, cy):
+                if (nx, ny) not in visited and datum.getPixel(nx, ny) > 0:
+                    visited.add((nx, ny))
+                    stack.append((nx, ny))
+
+    components = 0
+
+    for x in range(width):
+        for y in range(height):
+            if datum.getPixel(x, y) > 0 and (x, y) not in visited:
+                bfs(x, y)
+                components += 1
+
+    features["components_1"] = 1 if components == 1 else 0
+    features["components_2"] = 1 if components == 2 else 0
+    features["components_3plus"] = 1 if components >= 3 else 0
+
+    tl = tr = bl = br = 0
+
+    for x in range(width):
+        for y in range(height):
+            if datum.getPixel(x, y) > 0:
+                if x < width // 2 and y < height // 2:
+                    tl += 1
+                elif x >= width // 2 and y < height // 2:
+                    tr += 1
+                elif x < width // 2 and y >= height // 2:
+                    bl += 1
+                else:
+                    br += 1
+
+    max_quad = max(tl, tr, bl, br)
+
+    features["dominant_tl"] = 1 if tl == max_quad else 0
+    features["dominant_tr"] = 1 if tr == max_quad else 0
+    features["dominant_bl"] = 1 if bl == max_quad else 0
+    features["dominant_br"] = 1 if br == max_quad else 0
+
+
+    match = 0
+    total = 0
+
+    for x in range(width // 2):
+        for y in range(height):
+            if datum.getPixel(x, y) == datum.getPixel(width - 1 - x, y):
+                match += 1
+            total += 1
+
+    features["symmetric"] = 1 if (match / float(total)) > 0.9 else 0
+
+    center_x = width // 2
+    center_count = 0
+
+    for y in range(height):
+        if datum.getPixel(center_x, y) > 0:
+            center_count += 1
+
+    features["strong_center"] = 1 if center_count > height * 0.5 else 0
+
+    visited_bg = set()
+    stack = []
+
+    for x in range(width):
+        for y in [0, height - 1]:
+            if datum.getPixel(x, y) == 0:
+                stack.append((x, y))
+    for y in range(height):
+        for x in [0, width - 1]:
+            if datum.getPixel(x, y) == 0:
+                stack.append((x, y))
+
+    while stack:
+        x, y = stack.pop()
+        if (x, y) in visited_bg:
+            continue
+        visited_bg.add((x, y))
+
+        for dx, dy in [(1,0),(-1,0),(0,1),(0,-1)]:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < width and 0 <= ny < height:
+                if datum.getPixel(nx, ny) == 0 and (nx, ny) not in visited_bg:
+                    stack.append((nx, ny))
+
+    hole_exists = False
+    for x in range(width):
+        for y in range(height):
+            if datum.getPixel(x, y) == 0 and (x, y) not in visited_bg:
+                hole_exists = True
+                break
+
+    features["has_hole"] = 1 if hole_exists else 0
+
+    visited_bg = set()
+    stack = []
+
+    for x in range(width):
+        for y in [0, height - 1]:
+            if datum.getPixel(x, y) == 0:
+                stack.append((x, y))
+
+    for y in range(height):
+        for x in [0, width - 1]:
+            if datum.getPixel(x, y) == 0:
+                stack.append((x, y))
+
+    while stack:
+        x, y = stack.pop()
+        if (x, y) in visited_bg:
+            continue
+        visited_bg.add((x, y))
+
+        for dx, dy in [(1,0),(-1,0),(0,1),(0,-1)]:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < width and 0 <= ny < height:
+                if datum.getPixel(nx, ny) == 0 and (nx, ny) not in visited_bg:
+                    stack.append((nx, ny))
+    enclosed_count = 0
+
+    for x in range(width):
+        for y in range(height):
+            if datum.getPixel(x, y) == 0 and (x, y) not in visited_bg:
+                enclosed_count += 1
+
+    features["has_large_hole"] = 1 if enclosed_count > 3 else 0
 
     return features
-
-
 
 def basicFeatureExtractorPacman(state):
     """
@@ -124,7 +263,66 @@ def enhancedPacmanFeatures(state, action):
     """
     features = util.Counter()
     "*** YOUR CODE HERE ***"
-    util.raiseNotDefined()
+    features = util.Counter()
+
+    pacman = state.getPacmanPosition()
+    food = state.getFood()
+    ghosts = state.getGhostStates()
+    capsules = state.getCapsules()
+    walls = state.getWalls()
+
+    features["stop"] = 1 if action == "Stop" else 0
+
+    foodList = food.asList()
+    if len(foodList) > 0:
+        minFoodDist = min(util.manhattanDistance(pacman, f) for f in foodList)
+        successor = state.generateSuccessor(0, action)
+        nextPos = successor.getPacmanPosition()
+        nextFoodDist = min(util.manhattanDistance(nextPos, f) for f in foodList)
+
+        features["closer_to_food"] = 1 if nextFoodDist < minFoodDist else 0
+        features["food_distance"] = float(minFoodDist) / (state.data.layout.width + state.data.layout.height)
+
+    ghostPositions = [g.getPosition() for g in ghosts]
+
+    if len(ghostPositions) > 0:
+        minGhostDist = min(util.manhattanDistance(pacman, g) for g in ghostPositions)
+
+        successor = state.generateSuccessor(0, action)
+        nextPos = successor.getPacmanPosition()
+        nextGhostDist = min(util.manhattanDistance(nextPos, g) for g in ghostPositions)
+
+        features["closer_to_ghost"] = 1 if nextGhostDist < minGhostDist else 0
+        features["ghost_close"] = 1 if minGhostDist <= 2 else 0
+        features["ghost_far"] = 1 if minGhostDist > 5 else 0
+
+    if len(capsules) > 0:
+        minCapDist = min(util.manhattanDistance(pacman, c) for c in capsules)
+        successor = state.generateSuccessor(0, action)
+        nextPos = successor.getPacmanPosition()
+        nextCapDist = min(util.manhattanDistance(nextPos, c) for c in capsules)
+
+        features["closer_to_capsule"] = 1 if nextCapDist < minCapDist else 0
+
+    successor = state.generateSuccessor(0, action)
+    nextPos = successor.getPacmanPosition()
+
+    features["hits_wall"] = 1 if nextPos == pacman else 0
+
+    dx = nextPos[0] - pacman[0]
+    dy = nextPos[1] - pacman[1]
+
+    features["move_left"] = 1 if dx < 0 else 0
+    features["move_right"] = 1 if dx > 0 else 0
+    features["move_up"] = 1 if dy > 0 else 0
+    features["move_down"] = 1 if dy < 0 else 0
+
+    features["is_eating_direction"] = 0
+    if len(foodList) > 0:
+        nearestFood = min(foodList, key=lambda f: util.manhattanDistance(pacman, f))
+        if nextPos == nearestFood:
+            features["is_eating_direction"] = 1
+
     return features
 
 
